@@ -1,0 +1,9 @@
+*.pth
+.env
+.env.*
+draft.ipynb
+draft*.ipynb
+data/towns_w_env_concerns.json
+data/cities500.json
+__pycache__
+*.pyc
