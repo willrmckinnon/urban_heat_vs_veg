@@ -29,6 +29,8 @@ from pystac_client.stac_api_io import StacApiIO
 
 PLANETARY_COMPUTER_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
 
+
+
 def image_to_base64(img):
     buffer = BytesIO()
     img.save(buffer, format="PNG")
@@ -60,33 +62,35 @@ def closest_css3_color(rgb):
 class ObservedArea:
     def __init__(
             self, 
-            aoi, 
-            target_date, 
-            windows,
-            catalog,
-            collection = ['sentinel-2-l2a'],
-            cloud_cover = 30
+            lat,
+            lon,
+            sqkm, 
+            collection: list,
+            date_window: str, 
+            cloud_cover = 10
             ):
-        
-        self.aoi = aoi
-        self.target_date = target_date
+
+        # ---------------------------
+        # Setup the Client
+        # ---------------------------
+        retry = Retry(total=5, backoff_factor=1,status_forcelist=[502, 503, 504],allowed_methods=None)
+        stac_api_io = StacApiIO(max_retries=retry)
+        catalog = Client.open(PLANETARY_COMPUTER_URL, stac_io = stac_api_io)
+
+
+        self.aoi = point_to_bbox(lat, lon, sqkm)
+        self.date_window = date_window
         self.collection = collection
         self.catalog = catalog
         self.items = []
         self.date = None
         self.masks = {}
         self.batch = None
+        self.sentinel = (self.collection ==["sentinel-2-l2a"])
 
-        # ---------------------------
-        # Iteratively attempt to collect with an increasing date window
-        # ---------------------------
-        for window in windows:
-            start_day = str(self.target_date) 
-            end_day = str(self.target_date - timedelta(days=window))
-            date_window = end_day + '/' + start_day #Configure in a format for retrieval
 
-            # Attempt the search
-            if self.get_items(date_window, cloud_cover): break
+        # Get the items
+        self.get_items(date_window, cloud_cover)
 
 
 
@@ -95,7 +99,7 @@ class ObservedArea:
     def get_items(self, date_window, cloud_cover):
 
         #Selects only the most recent item from each MGRS tile
-        def filter_items(items):
+        def filter_items_sentinel(items):
             #filter out those with clouds over AOI
             cloudless_items = []
             for item in items:
@@ -103,6 +107,7 @@ class ObservedArea:
                 cloud_mask = np.isin(scl, [1, 3, 7, 8, 9, 10,11]).astype('int64')
                 cloud_fraction = cloud_mask.mean()
                 if cloud_fraction < 0.1: cloudless_items.append(item)
+            
             #Only take the most recent item of each MGRS grid
             latest_items = {}
             for item in cloudless_items:
@@ -111,6 +116,36 @@ class ObservedArea:
                 if tile_id and tile_id not in latest_items:
                     latest_items[tile_id] = item
             return list(latest_items.values())
+        
+        def filter_items_landsat(items):
+            cloudless_items = []
+            for item in items:
+                ds = self.stack(['qa_pixel'],[item])
+                qa = ds["qa_pixel"]
+                cloud_mask = (qa.astype("uint16") & (1 << 3)) > 0
+                cloud_fraction = cloud_mask.mean(dim=["x","y"])
+                cloud_fraction = cloud_fraction.compute().item()
+
+                if cloud_fraction < 0.1: cloudless_items.append(item)    
+
+            #Only take the most recent item of each row/path
+            def landsat_tile_id(item):
+                path = int(item.properties.get("landsat:wrs_path"))
+                row = int(item.properties.get("landsat:wrs_row"))
+                return f"{path:03d}_{row:03d}"
+            
+            latest_items = {}
+            for item in cloudless_items:
+                # Get the Grid
+                tile_id = landsat_tile_id(item)
+                if tile_id and tile_id not in latest_items:
+                    latest_items[tile_id] = item
+            return list(latest_items.values())         
+
+
+
+
+
         
         #Confirms if the items cover the observation AOI
         def confirm_coverage(items):
@@ -134,6 +169,7 @@ class ObservedArea:
         #---------------------------------------------
         #Search
         #---------------------------------------------
+        warnings.filterwarnings("ignore")
         search = self.catalog.search(
             collections=self.collection,
             bbox = self.aoi.bounds,
@@ -143,14 +179,16 @@ class ObservedArea:
             max_items = 10
         )
         items = search.get_all_items()
-        items = filter_items(items)
+        if self.sentinel: items = filter_items_sentinel(items)
+        else: items = filter_items_landsat(items)
 
         if len(items) >= 0 and confirm_coverage(items): 
             self.items = items
             set_date()
             print(f'Observation collected on {self.date}')
             return True
-        else: return False
+        else: raise ValueError('No clear observation could be found of this area in this date range')
+
 
 
 #---------------------------------------------------------------------
@@ -174,18 +212,31 @@ class ObservedArea:
             resampling = 'bilinear',
             chunks = {'x': 512, 'y': 512}
         )
-        xx = xx[bands].median(dim="time")
-        image_array = (
-            xx
-            .to_array()
-            .transpose("y", "x", "variable")
-            .values
-        )
+        
+        if self.sentinel: 
+            xx = xx[bands].median(dim="time")
+            image_array = (
+                xx
+                .to_array()
+                .transpose("y", "x", "variable")
+                .values
+            )
+            return image_array, xx
 
-        return image_array, xx
+        else: return xx[bands].astype("uint16")
+
+
+
+        
     
+
+
     #Method to quickly return the visual as a PIL image
     def get_image(self, mask_type = None, target_sat = 75):
+        if self.collection != ["sentinel-2-l2a"]:
+            print('Obserservation has no image data and cannot return an image')
+            return
+
         data = self.stack(['B02','B03','B04'])[0]
         data =crop32(np.transpose(data,(2,0,1)))
         data = np.transpose(data,(1,2,0))
@@ -221,108 +272,11 @@ class ObservedArea:
 
 
 
-
-
-
-
-
-
-
-
-    # Provided a model, creates the mask for the observation 
-    def inference(self, model, mask_type):
-        '''
-        Mehod designed specifically for a model with the following characteristics
-        - Model contains .bands <list> attribute that lists the various sentinel bands required as input
-        - Model requires input height and width to be in multiples of 32
-        - Model is designed to receive input in (B x H x W) shape
-        '''
-        # Setup the data
-        self.masks = {}
-        bands = model.bands
-        data, xx = self.stack(bands)
-        data = np.transpose(data, (2,0,1))
-        transform = xx.rio.transform()
-        data, transform = crop32(data, transform)
- 
-
-        #Add crs and transform to metadata
-        metadata = model.mask_tag
-        metadata['transform'] = transform
-        metadata['crs'] = xx.rio.crs
-
-        # Inference
-        mask = model.inference(data)
-
-        self.masks[mask_type] = {
-            'mask': mask,
-            'data': data,
-            'metadata': metadata
-        }
-        if model.model_name: model_name = model.model_name
-        else: model_name = 'No model name provided'
-
-        if False: 
-            img = self.get_image(mask_type=mask_type)
-            result = {}
-            result['model_name'] = model_name
-            result['model_tag'] = mask_type
-            result['batchId'] = self.batch
-            result['image'] = image_to_base64(img)
-
-            #Collect the metadata of the mask
-            metadata = {}
-            label_map = self.masks[mask_type]['metadata']['label_map']
-            color_map = self.masks[mask_type]['metadata']['color_map']
-            count_dict = {}
-            u_label, u_count = np.unique(mask, return_counts = True)
-            for i in range(len(u_label)): count_dict[u_label[i]] = u_count[i]
-
-            # Collect info on each label
-            labels_in_mask =[]
-            primary_area= ['', 0]
-            for label, count in count_dict.items():
-                if label != 0:
-                    tot_a = count/10000
-                    tot_area = f'{tot_a:.2f} sqkm'
-                    if float(tot_a) > float(primary_area[1]): 
-                        primary_area[0] = label_map[label]
-                        primary_area[1] = tot_a
-                    perc_a = ((count/sum(count_dict.values()))*100)
-                    percent_of_area = f'{perc_a:.2f}%'
-                    clr = color_map[label]
-                    labels_in_mask.append({'class': label_map[label],
-                                           'sub': percent_of_area,
-                                           'Total Area of This Type:': tot_area,
-                                           'Percentage of Observation this Type:':percent_of_area,
-                                           'Color Key: ': closest_css3_color(clr)
-                                           })
-            metadata['labels'] = labels_in_mask
-            # Collect summary info
-            metadata['primaryLandType'] = str(primary_area[0])
-            result['metadata'] = metadata
-
-            #self.logger([result],'model_return')
-
-
-
-
-
-
-
-
-
-    # Creates a simple overlay of the mask on top of the image
-    def display_mask_on_image(self, model_tag):
-        mask = self.masks[model_tag]
-        if mask['metadata']['label_map'] and mask['metadata']['wc_code_map']:
-            wc_display(mask['data'], mask['mask'], 
-                label_map=mask['metadata']['label_map'], 
-                wc_code_map=mask['metadata']['wc_code_map'])
-        else: wc_display(mask['data'], mask)
-
     # Returns the entire tile image for analysis
     def get_whole_item(self, ind):
+        if self.collection != ["sentinel-2-l2a"]:
+            print('Obserservation has no image data and cannot return an image')
+            return
         signed_item = planetary_computer.sign(self.items[ind])
         visual_href = signed_item.assets["visual"].href
         img = rio.open_rasterio(visual_href)
@@ -368,38 +322,6 @@ class ObservedArea:
 
         return obs
         
-
-
-
-
-
-#---------------------------------------------------------------------
-#-----------------------Calling-Function------------------------------
-#---------------------------------------------------------------------
-
-
-#Function to return an observation without clouds closest to target date
-def collect_observation(lat, lon, sqkm, target_date: datetime.date, windows = [45]):
-    # ---------------------------
-    # Setup the AOI
-    # ---------------------------
-    aoi = point_to_bbox(lat, lon, sqkm)
-    
-    # ---------------------------
-    # Setup the Client
-    # ---------------------------
-    retry = Retry(total=5, backoff_factor=1,status_forcelist=[502, 503, 504],allowed_methods=None)
-    stac_api_io = StacApiIO(max_retries=retry)
-    catalog = Client.open(PLANETARY_COMPUTER_URL, stac_io = stac_api_io)
-
-    # ---------------------------
-    # Get the observation
-    # ---------------------------
-    warnings.filterwarnings("ignore")
-    obs = ObservedArea(aoi, target_date, windows, catalog)
-
-    return obs
-
 
 
 
