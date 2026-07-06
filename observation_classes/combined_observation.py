@@ -3,7 +3,6 @@ import pickle
 from pathlib import Path
 
 # Custom Libraries
-from utils.calculate_obs_stats import calculate_stats
 from observation_classes.landsat_observation import LandsatObs
 from observation_classes.sentinel_observation import SentinelObs
 
@@ -76,10 +75,6 @@ class CombinedObservation():
         # Set the images if true
         if set_imgs: self.set_images()
 
-        # Calculate the stats
-        if calc_stats: 
-            self.stats = calculate_stats(self, return_figure=incl_stats_figure)
-
         print(f'{self.city_name.iloc[0]} collection complete')
 
 
@@ -113,7 +108,6 @@ class CombinedObservation():
     def reset_lst(self):
         self.landsat_obs.set_lst()
         self.lst = self.landsat_obs.lst_celsius
-        print('Successfully reset lst')
 
     def reset_sentinel_indexes(self):
         self.sentinel_obs.set_all_indexes()

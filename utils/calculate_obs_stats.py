@@ -82,18 +82,48 @@ def calc_iou_thresholds(obs, index, return_all = False):
     else: return df[df['IOU'] == df['IOU'].max()]
 
 
+# Creates a histogram of temperature values
+def temp_hist(obs):
+    _, lst_valid = mask_pairing(obs.ndvi, obs.lst)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.hist(lst_valid, bins=1000)
+    ax.set_xlabel('Temperature')
+    ax.set_ylabel('Frequency')
+    ax.set_title('City Temperatures')
+
+    # Save the figure as a pil image
+    buffer = BytesIO()
+    fig.savefig(buffer, format="png", bbox_inches="tight", dpi=300)
+    buffer.seek(0)
+
+    # Convert to PIL
+    fig_img = Image.open(buffer)
+    plt.close(fig)
+    return fig_img
+
 
 
 def calculate_index_stats(obs,
                           index, 
-                         return_figure=True,
-                         iou_lst_thresh = 0.5,
-                         iou_index_thresh = 0.35,
-                         index_name = 'Index',
-                         local_mean = False
-                         ):
+                          return_figure=True,
+                          iou_lst_thresh = 0.5,
+                          iou_index_thresh = 0.35,
+                          index_name = 'Index',
+                          run_local_mean = False
+                          ):
     
-    if local_mean: index = local_mean(index)
+    if index_name == 'NDVI': iou_index_thresh = 0.34
+    elif index_name =='SAVI': iou_index_thresh = 0.504
+    elif index_name == 'FVC': iou_index_thresh = 0.1
+    elif index_name == 'NDMI': iou_index_thresh = 0.09
+    else: iou_index_thresh = 0.3
+
+
+
+    if run_local_mean: 
+        window = 10
+        index = index.rolling(x=window, y=window,center=True).mean()
 
     index_valid, lst_valid = mask_pairing(index, obs.lst)
 

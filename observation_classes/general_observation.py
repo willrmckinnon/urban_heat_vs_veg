@@ -1,6 +1,5 @@
 # Custom Functions
 from utils.helper import point_to_bbox
-from models.utils.display import sentinel_worldcover_image_and_mask_display as wc_display
 
 # Basic Libraries
 import base64
