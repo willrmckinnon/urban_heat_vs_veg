@@ -1,10 +1,12 @@
 # Generic Libraries
+import time
 import pickle
 from pathlib import Path
 
 # Custom Libraries
 from observation_classes.landsat_observation import LandsatObs
 from observation_classes.sentinel_observation import SentinelObs
+from operations.stats_for_multiple_cities import complete_statistical_analysis
 
 STARTING_YEAR = 2025
 EARLIEST_YEAR = 2020
@@ -33,10 +35,10 @@ class CombinedObservation():
         landsat_obs = None
         sentinel_obs = None
         max_check = starting_year-earliest_year + 5
-        cloud_thresh_params = [0.05, 0.1, 0.15, 0.2, 0.25]
+        cloud_thresh_params = [0.05]#, 0.1, 0.15, 0.2, 0.25]
         observations_found = False
 
-
+ 
         for cloud_thresh in cloud_thresh_params:
             year = starting_year 
             check = 0
@@ -45,7 +47,9 @@ class CombinedObservation():
                 if check > max_check: raise Exception(f'Too many attempts: Could not find a pair of observations in {check} attempts')
 
                 try:
+                    time.sleep(1)
                     landsat_obs = LandsatObs(city_id, sqkm, year=year, cloud_threshold=cloud_thresh)
+                    time.sleep(1)
                     sentinel_obs = SentinelObs(city_id, sqkm, year=year, cloud_threshold=cloud_thresh)
                     break
                 except Exception as e: 
@@ -119,17 +123,27 @@ class CombinedObservation():
 
 
     def get_metadata(self):
-        return {
+
+        self.sentinel_obs.set_all_indexes()
+        self.ndvi = self.sentinel_obs.ndvi
+        self.fvc = self.sentinel_obs.fvc
+        self.savi = self.sentinel_obs.savi
+        self.ndmi = self.sentinel_obs.ndmi
+        
+        stats = complete_statistical_analysis(self)[0]
+        if stats['city_name']: del stats['city_name']
+
+        metadata = {
             'city_name': self.city_name.iloc[0],
             'city_id': self.city_id,
             'lst_coverage': self.landsat_obs.coverage,
             'ndvi_coverage': self.sentinel_obs.coverage,
             'ndvi_cloud_fraction': self.sentinel_obs.cloud_fraction,
             'sentinel_item_count': len(self.sentinel_obs.items),
-            'landsat_item_count': len(self.landsat_obs.items),
-            'scene_mean_ndvi': self.stats['scene_mean_ndvi'],
-            'scene_mean_lst': self.stats['scene_mean_lst'],
-            'pearson_correlation': self.stats['pearson_cor'],
-            'linear_regression_slope': self.stats['linear_regression_slope']      
+            'landsat_item_count': len(self.landsat_obs.items),  
         }
+
+        for k, v in stats.items(): metadata[k] = v
+
+        return metadata
 

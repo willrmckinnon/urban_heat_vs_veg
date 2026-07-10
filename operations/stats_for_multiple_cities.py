@@ -38,7 +38,7 @@ def complete_statistical_analysis(obs,
     First return: complete dictionary with all statistical data
     Second return: dictionary with raw index pixel statistics
     Third return: dictionary with mean index pixel statistics where each pixel represents mean index values for 150m in any direction
-    """
+    """ 
 
     output_complete = {'city_name': obs.city_name.iloc[0]}
     output_raw = {'city_name': obs.city_name.iloc[0]}

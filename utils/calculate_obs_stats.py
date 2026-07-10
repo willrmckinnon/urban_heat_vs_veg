@@ -12,30 +12,8 @@ from scipy.ndimage import uniform_filter
 
 
 
-# Returns numpy arrays for lst and ndvi
-def numpy_masks(obs, index):
-    #Resample to pair up the lst and ndvi
-    ndvi_10m_xx = index
-    lst_xx = obs.lst
-
-    ndvi_xx = ndvi_10m_xx.rio.reproject_match(lst_xx, resampling=Resampling.average)
-
-    # Convert to numpy 
-    ndvi = ndvi_xx.to_numpy().squeeze()
-    lst = lst_xx.to_array().to_numpy().squeeze()
-    return ndvi, lst    
-
-
-# Returns a xarray the same size as input where each value is the mean of all surrounding it
-# radius is number of pixels in each direction to go
-def local_mean(da, radius):
-    window = 2 * radius + 1
-    return da.rolling(x=window, y=window,center=True).mean()
-
-
-
 # Returns a pair of matching pixel values as numpy arrays
-def mask_pairing(index_s, lst_s):
+def mask_pairing(index_s, lst_s, obs, remove_water = True):
     #Resample to pair up the lst and ndvi
     index_10m_xx = index_s
     lst_xx = lst_s
@@ -55,52 +33,24 @@ def mask_pairing(index_s, lst_s):
     index_valid = index_flat[mask]
     lst_valid = lst_flat[mask]
 
+    # Remove Water
+    if remove_water:
+        scl_xx = obs.sentinel_obs.stack(['SCL'])[1]
+        scl_r_xx = scl_xx.rio.reproject_match(lst_xx, resampling=Resampling.average)
+        scl_arr = scl_r_xx.to_array().to_numpy().squeeze() 
+        scl_flat = scl_arr.ravel()
+        scl_valid = scl_flat[mask]
+
+        # Water Mask where non water is true
+        w_mask = scl_valid != 6 
+
+        index_valid = index_valid[w_mask]
+        lst_valid = lst_valid[w_mask]
+        
+
     return index_valid, lst_valid
 
 
-
-# Calculate the best performing IOU thresholds
-def calc_iou_thresholds(obs, index, return_all = False):
-    ndvi, lst = numpy_masks(obs, index)
-    rows = []
-    for lst_thresh in np.arange(0.5, 1.55, 0.05):
-        z_lst = (lst - np.nanmean(lst)) / np.nanstd(lst)
-        lst_mask = z_lst > lst_thresh
-
-        for ndvi_thresh in np.arange(0, 1.05, 0.05):
-            ndvi_mask = ndvi < ndvi_thresh
-            iou = np.sum(lst_mask & ndvi_mask) / np.sum(lst_mask | ndvi_mask)
-            rows.append({
-                'index_threshold': ndvi_thresh,
-                'lst_threshold': lst_thresh,
-                'IOU': iou
-            })
-
-    df = pd.DataFrame(rows)
-
-    if return_all: return df
-    else: return df[df['IOU'] == df['IOU'].max()]
-
-
-# Creates a histogram of temperature values
-def temp_hist(obs):
-    _, lst_valid = mask_pairing(obs.ndvi, obs.lst)
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.hist(lst_valid, bins=1000)
-    ax.set_xlabel('Temperature')
-    ax.set_ylabel('Frequency')
-    ax.set_title('City Temperatures')
-
-    # Save the figure as a pil image
-    buffer = BytesIO()
-    fig.savefig(buffer, format="png", bbox_inches="tight", dpi=300)
-    buffer.seek(0)
-
-    # Convert to PIL
-    fig_img = Image.open(buffer)
-    plt.close(fig)
-    return fig_img
 
 
 
@@ -110,7 +60,8 @@ def calculate_index_stats(obs,
                           iou_lst_thresh = 0.5,
                           iou_index_thresh = 0.35,
                           index_name = 'Index',
-                          run_local_mean = False
+                          run_local_mean = False,
+                          remove_water = True
                           ):
     
     if index_name == 'NDVI': iou_index_thresh = 0.34
@@ -120,12 +71,11 @@ def calculate_index_stats(obs,
     else: iou_index_thresh = 0.3
 
 
-
     if run_local_mean: 
         window = 10
         index = index.rolling(x=window, y=window,center=True).mean()
 
-    index_valid, lst_valid = mask_pairing(index, obs.lst)
+    index_valid, lst_valid = mask_pairing(index, obs.lst, obs, remove_water=remove_water)
 
     #################################
     #          Basic Stats          #
@@ -194,3 +144,64 @@ def calculate_index_stats(obs,
 
 
 
+
+
+
+
+
+
+
+
+# Creates a histogram of temperature values
+def temp_hist(obs):
+    _, lst_valid = mask_pairing(obs.ndvi, obs.lst)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.hist(lst_valid, bins=1000)
+    ax.set_xlabel('Temperature')
+    ax.set_ylabel('Frequency')
+    ax.set_title('City Temperatures')
+
+    # Save the figure as a pil image
+    buffer = BytesIO()
+    fig.savefig(buffer, format="png", bbox_inches="tight", dpi=300)
+    buffer.seek(0)
+
+    # Convert to PIL
+    fig_img = Image.open(buffer)
+    plt.close(fig)
+    return fig_img
+
+
+
+
+# Calculate the best performing IOU thresholds
+def calc_iou_thresholds(obs, index, return_all = False):
+    #Resample to pair up the lst and ndvi
+    ndvi_10m_xx = index
+    lst_xx = obs.lst
+
+    ndvi_xx = ndvi_10m_xx.rio.reproject_match(lst_xx, resampling=Resampling.average)
+
+    # Convert to numpy 
+    ndvi = ndvi_xx.to_numpy().squeeze()
+    lst = lst_xx.to_array().to_numpy().squeeze()
+
+    rows = []
+    for lst_thresh in np.arange(0.5, 1.55, 0.05):
+        z_lst = (lst - np.nanmean(lst)) / np.nanstd(lst)
+        lst_mask = z_lst > lst_thresh
+
+        for ndvi_thresh in np.arange(0, 1.05, 0.05):
+            ndvi_mask = ndvi < ndvi_thresh
+            iou = np.sum(lst_mask & ndvi_mask) / np.sum(lst_mask | ndvi_mask)
+            rows.append({
+                'index_threshold': ndvi_thresh,
+                'lst_threshold': lst_thresh,
+                'IOU': iou
+            })
+
+    df = pd.DataFrame(rows)
+
+    if return_all: return df
+    else: return df[df['IOU'] == df['IOU'].max()]

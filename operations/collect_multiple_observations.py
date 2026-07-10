@@ -17,7 +17,11 @@ def complete_report(city_shortlist: dict, output_folder_path: str, sqkm = 500):
 
         try:
             # Get observation
-            obs = CombinedObservation(city_id, sqkm=sqkm, set_imgs=False)
+            obs = CombinedObservation(city_id, 
+                                      sqkm=sqkm, 
+                                      set_imgs=False,
+                                      incl_stats_figure=False
+                                      )
 
             # Collect Metadata
             file_name = str(f'{city_name}.pkl')

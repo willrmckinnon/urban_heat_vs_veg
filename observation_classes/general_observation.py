@@ -51,7 +51,6 @@ def closest_css3_color(rgb):
     return closest_name
 
 
-#SPECIFICALLY FOR SENTINEL ITEMS
 #Class to collect items for a spacific observation area at a given time
 class ObservedArea:
     def __init__(
