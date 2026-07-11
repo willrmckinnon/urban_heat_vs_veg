@@ -1,4 +1,5 @@
 # Custom Functions
+from config import MGRS_REFERENCE_FILE
 from observation_classes.city_observation import CityObservation
 
 # Basic Libraries
@@ -14,9 +15,6 @@ from shapely.geometry import shape
 from matplotlib import pyplot as plt
 from shapely.geometry import Polygon, MultiPolygon
 
-
-
-MGRS_REFERENCE_FILE = 'data/copernicus_tiling_reference.kml'
 
 # Function needed to handle polygons with z data
 def drop_z(geom):

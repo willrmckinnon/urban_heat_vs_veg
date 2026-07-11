@@ -1,4 +1,5 @@
 # Custom Functions
+from config import PLANETARY_COMPUTER_URL
 from utils.helper import point_to_bbox, crop32
 from models.utils.display import sentinel_worldcover_image_and_mask_display as wc_display
 
@@ -25,9 +26,6 @@ from datetime import datetime, timedelta
 # Retry libraries
 from urllib3 import Retry
 from pystac_client.stac_api_io import StacApiIO
-
-
-PLANETARY_COMPUTER_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
 
 
 

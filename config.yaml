@@ -1,6 +1,0 @@
-known_locations:
-  home: [39.015025, -77.014889]
-  dc: [38.9073, -77.0369]
-  hood_county: [32.4343, -97.8286]
-  linn_county: [42.0791, -91.5984]
-model_path: "models/building_model.pth"

@@ -1,4 +1,5 @@
 # Custom Functions
+from config import CITY_LIST_URL
 from observation_classes.general_observation import ObservedArea
 
 # Basic Libraries
@@ -18,8 +19,7 @@ def set_date_window(lat, year, satellite):
             return str(f'{year - 1}-12-01/{year}-02-28')        
 
  
-CITY_DATA_PATH = 'data/cities500.json'
-CITY_DF = pd.read_json(CITY_DATA_PATH)
+CITY_DF = pd.read_json(CITY_LIST_URL)
 
  
 class CityObservation(ObservedArea):

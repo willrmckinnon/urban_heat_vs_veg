@@ -1,5 +1,6 @@
 # Custom Functions
 from utils.helper import point_to_bbox
+from config import PLANETARY_COMPUTER_URL
 
 # Basic Libraries
 import base64
@@ -19,10 +20,6 @@ from shapely.ops import unary_union
 # Retry libraries
 from urllib3 import Retry
 from pystac_client.stac_api_io import StacApiIO
-
-
-PLANETARY_COMPUTER_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
-
 
 
 def image_to_base64(img):

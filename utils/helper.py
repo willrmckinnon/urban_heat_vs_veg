@@ -4,8 +4,122 @@ import numpy as np
 from PIL import Image
 from shapely.ops import transform
 from pyproj import CRS,Transformer
+from PIL import ImageDraw, ImageFont
 from rasterio.transform import Affine
 from shapely.geometry import box, Polygon
+
+
+
+
+
+
+def create_overlay(
+    base_image: Image.Image,
+    arr: np.ndarray,
+    arr_threshold=0.4,
+    arr_color=(255, 0, 0),
+):
+    """
+    Overlay an arrays onto a PIL image.
+    ----------
+    base_image : PIL.Image
+        Original image.
+    arr : np.ndarray
+        Values between 0 and 1.
+    """
+    def resize_array(arr: np.ndarray, target_shape):
+        target_h, target_w = target_shape
+        arr_img = Image.fromarray(arr.astype(np.float32))
+        arr_resized = arr_img.resize((target_w, target_h), Image.Resampling.BILINEAR)
+        return np.array(arr_resized)
+
+
+    # --------------------------------------------------
+    # SIZE ARRAY
+    # --------------------------------------------------
+
+    base = base_image.convert("RGBA")
+    img_w, img_h = base.size
+    
+    arr = resize_array(arr, (img_h, img_w))
+
+
+    # --------------------------------------------------
+    # ARR OVERLAY
+    # --------------------------------------------------
+
+    arr_alpha = np.zeros_like(arr, dtype=np.uint8)
+
+    mask = arr > arr_threshold
+
+    if mask.any():
+        # Normalize values above threshold to 0-255
+        arr_norm = (arr[mask] - arr_threshold) / (
+            np.nanmax(arr) - arr_threshold
+        )
+
+        arr_alpha[mask] = (arr_norm * 255).astype(np.uint8)
+
+    overlay = np.zeros((img_h, img_w, 4), dtype=np.uint8)
+    overlay[..., 0] = arr_color[0]
+    overlay[..., 1] = arr_color[1]
+    overlay[..., 2] = arr_color[2]
+    overlay[..., 3] = arr_alpha
+
+    overlay1_img = Image.fromarray(overlay, mode="RGBA")
+
+
+    # --------------------------------------------------
+    # COMPOSITE
+    # --------------------------------------------------
+
+    return Image.alpha_composite(base, overlay1_img)
+
+
+
+
+
+
+
+
+def add_legend(img, indices, text_size = 20, ind_length = 220):
+
+    legend_overlay = Image.new("RGBA", img.size, (0,0,0,0))
+    draw = ImageDraw.Draw(legend_overlay)
+
+    h, w = legend_overlay.size
+    # Legend position
+    x = w-30
+    y = h-30
+    box_size = 20
+    spacing = 35
+
+
+
+    try:
+        font = ImageFont.truetype("Arial.ttf", text_size)
+    except:
+        font = ImageFont.load_default()
+
+    # Draw semi-transparent background
+    draw.rounded_rectangle([x-(len(indices)*ind_length+10), y-text_size-10, x, y+10], radius=10, fill=(0, 0, 0, 125))
+
+    for name, clr in indices.items():
+        i = list(indices).index(name)+1
+        x_offset = i*ind_length
+
+        draw.rectangle([x-x_offset, y-box_size, x-x_offset+box_size, y], fill=clr, outline="white", width=1)
+        draw.text((x-x_offset+box_size+10, y-text_size), name, fill="white", font=font)
+    
+    
+    return Image.alpha_composite(img, legend_overlay)
+
+
+
+
+
+
+
 
 
 #Reads the config file
